@@ -610,6 +610,66 @@ document.addEventListener("click", e => {
     textarea.focus();
     textarea.setSelectionRange(textarea.value.length, textarea.value.length);
 });
+const setReplyTarget = (form, replyId, username) => {
+    if (!form) return;
+    const input = form.querySelector("[data-reply-parent]");
+    const chip = form.querySelector("[data-reply-target]");
+    if (input) input.value = replyId ? String(replyId) : "0";
+    if (chip) {
+        chip.hidden = !replyId;
+        const link = chip.querySelector("[data-reply-target-link]");
+        if (link) {
+            link.textContent = "@" + (username || "");
+            link.href = replyId ? "#post-" + replyId : "#";
+        }
+    }
+};
+const clearReplyTarget = form => setReplyTarget(form, "", "");
+document.addEventListener("click", e => {
+    const target = e.target.closest(".reply-to");
+    if (!target) return;
+    e.preventDefault();
+    const form = document.querySelector(".ajax-reply-form");
+    const panel = document.getElementById("reply");
+    const textarea = document.querySelector("#reply textarea[name=body]");
+    if (!form || !panel || !textarea) {
+        window.location.href = target.href;
+        return;
+    }
+    setReplyTarget(form, (target.dataset.replyTo || "").trim(), (target.dataset.username || "").trim());
+    panel.scrollIntoView({block:"center"});
+    textarea.focus();
+});
+document.addEventListener("click", e => {
+    const cancel = e.target.closest("[data-reply-target-cancel]");
+    if (!cancel) return;
+    e.preventDefault();
+    clearReplyTarget(cancel.closest("form"));
+});
+document.addEventListener("click", e => {
+    const toggle = e.target.closest("[data-reply-toggle]");
+    if (!toggle) return;
+    e.preventDefault();
+    const node = toggle.closest(".reply-node");
+    if (!node) return;
+    const collapsed = node.classList.toggle("collapsed");
+    toggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
+    toggle.textContent = collapsed ? "+" : "−";
+});
+const refreshHiddenCounts = node => {
+    let current = node;
+    while (current) {
+        const subtree = current.querySelector(":scope > .reply-subtree");
+        if (subtree) {
+            const label = subtree.querySelector(":scope > .reply-hidden-count");
+            if (label) {
+                const count = subtree.querySelectorAll(".reply-node").length;
+                label.textContent = count === 1 ? "1 reply hidden" : count + " replies hidden";
+            }
+        }
+        current = current.parentElement?.closest(".reply-node") || null;
+    }
+};
 const injectOnDemandAssets = (css, js) => {
     const existingLinks = () => [...document.querySelectorAll('link[rel="stylesheet"][href]')].map(link => link.getAttribute("href"));
     const existingScripts = () => [...document.querySelectorAll("script[src]")].map(script => script.getAttribute("src"));
@@ -736,8 +796,28 @@ document.addEventListener("submit", async e => {
             let reply = null;
             list?.querySelector(".empty-state")?.remove();
             if (data.html && list) {
-                list.insertAdjacentHTML("beforeend", data.html);
-                reply = list.lastElementChild?.matches(".post-entry") ? list.lastElementChild : null;
+                const parentId = Number(data.parent_id || 0);
+                const parentNode = parentId > 0 ? list.querySelector('[data-reply-id="' + parentId + '"]') : null;
+                if (parentNode) {
+                    let subtree = parentNode.querySelector(":scope > .reply-subtree");
+                    if (!subtree) {
+                        parentNode.insertAdjacentHTML("beforeend", '<div class="reply-subtree"><button type="button" class="reply-collapse-toggle" data-reply-toggle="' + parentId + '" aria-expanded="true" aria-label="Collapse replies">−</button><span class="reply-hidden-count"></span><ul class="reply-children"></ul></div>');
+                        subtree = parentNode.querySelector(":scope > .reply-subtree");
+                    }
+                    parentNode.classList.remove("collapsed");
+                    const toggle = subtree.querySelector(":scope > [data-reply-toggle]");
+                    if (toggle) {
+                        toggle.setAttribute("aria-expanded", "true");
+                        toggle.textContent = "−";
+                    }
+                    const children = subtree.querySelector(":scope > .reply-children");
+                    children.insertAdjacentHTML("beforeend", data.html);
+                    reply = children.lastElementChild;
+                    refreshHiddenCounts(parentNode);
+                } else {
+                    list.insertAdjacentHTML("beforeend", data.html);
+                    reply = list.lastElementChild?.matches(".post-entry") ? list.lastElementChild : list.lastElementChild;
+                }
             }
             injectOnDemandAssets(data.assets_css, data.assets_js);
             const title = document.querySelector(".post-topic-title");
@@ -749,6 +829,7 @@ document.addEventListener("submit", async e => {
                 } else if (stats) stats.remove();
             }
             replyForm.reset();
+            clearReplyTarget(replyForm);
             if (window.turnstile && replyForm.querySelector(".cf-turnstile")) window.turnstile.reset(replyForm.querySelector(".cf-turnstile"));
             if (status) status.textContent = "Replied";
             if (data.tip) showToast(data.tip);

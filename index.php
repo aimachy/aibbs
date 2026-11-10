@@ -940,10 +940,10 @@ function user_points_set(int $user_id, int $points, string $reason = 'System adj
     $old = (int)(row('app_users', 'id', $user_id)['points'] ?? 0);
     return user_points_change($user_id, $points - $old, $reason);
 }
-function create_mention_notifications(int $topic_id, int $reply_id, string $body, int $sender_id): void
+function create_mention_notifications(int $topic_id, int $reply_id, string $body, int $sender_id): array
 {
     $topic = row('app_topics', 'id', $topic_id);
-    if (!$topic) return;
+    if (!$topic) return [];
     $usernames = notification_targets($body);
     $targets = [];
     if ($usernames) {
@@ -956,14 +956,23 @@ function create_mention_notifications(int $topic_id, int $reply_id, string $body
     foreach (array_keys($targets) as $uid) {
         create_notification((int)$uid, $sender_id, 'mention', 'mentioned you in the topic "' . (string)$topic['title'] . '": ' . $excerpt, $topic_id, $reply_id);
     }
+    return array_keys($targets);
 }
 function create_topic_notifications(int $topic_id, string $body, int $sender_id): void
 {
     create_mention_notifications($topic_id, 0, $body, $sender_id);
 }
-function create_reply_notifications(int $topic_id, int $reply_id, string $body, int $sender_id): void
+function create_reply_notifications(int $topic_id, int $reply_id, string $body, int $sender_id, int $parent_id = 0): void
 {
-    create_mention_notifications($topic_id, $reply_id, $body, $sender_id);
+    $notified = create_mention_notifications($topic_id, $reply_id, $body, $sender_id);
+    if ($parent_id <= 0 || !reply_tree_enabled()) return;
+    $parent = row('app_replies', 'id', $parent_id);
+    if (!$parent || (int)$parent['topic_id'] !== $topic_id) return;
+    $parent_author = (int)$parent['user_id'];
+    if ($parent_author <= 0 || $parent_author === $sender_id || in_array($parent_author, $notified, true)) return;
+    $topic = row('app_topics', 'id', $topic_id);
+    if (!$topic) return;
+    create_notification($parent_author, $sender_id, 'reply', 'replied to your reply in the topic "' . (string)$topic['title'] . '": ' . notification_excerpt($body), $topic_id, $reply_id);
 }
 function notification_box(): string
 {
@@ -1040,6 +1049,7 @@ function notification_row_html(array $n): string
     }
     $kind = match ((string)($n['kind'] ?? '')) {
         'mention' => 'Mention',
+        'reply' => 'Reply',
         'sent' => 'Sent',
         default => 'Notification'
     };
@@ -1853,6 +1863,8 @@ function topic_post_row(array $row, string $body, int $time, string $ops = '', s
         'is_first_page' => $page === 1,
         'list' => !empty($ctx['list']),
     ] + ($is_reply ? ['reply_position' => $floor] : []) + $ctx;
+    $row_tag = (($ctx['row_tag'] ?? 'li') === 'div') ? 'div' : 'li';
+    $close_tag = '</' . $row_tag . '>';
     $filtered = hook($is_reply ? 'reply.before_render' : 'topic.before_render', ['row' => $row, 'body' => $body, 'time' => $time] + $ctx);
     if (is_array($filtered)) {
         if (isset($filtered['row']) && is_array($filtered['row'])) $row = $filtered['row'];
@@ -1885,13 +1897,15 @@ function topic_post_row(array $row, string $body, int $time, string $ops = '', s
     $uid_html = ((int)($row['user_id'] ?? 0) > 0 && empty($row['plugin_anonymous_posting_masked']) && (string)($row['username'] ?? '') !== 'Anonymous') ? '<span class="post-user-group user-uid-badge" title="User UID"><span class="user-uid-icon" aria-hidden="true">' . svg_icon('id') . '</span>' . (int)$row['user_id'] . '</span>' : '';
     $tags_html = topic_user_group_html($row) . user_state_tag_html($row) . $uid_html;
     $body_html = (string)hook($is_reply ? 'reply.content_html' : 'topic.content_html', markdown_html($body, 0, $topic_id), ['row' => $row, 'body' => $body, 'topic_id' => $topic_id] + $ctx);
-    $html = '<li class="post-item post-entry' . ($has_title ? ' has-title' : '') . ($highlight ? ' post-highlight' : '') . '" id="post-' . (int)($row['id'] ?? 0) . '" data-slot="' . $row_slots . '"' . $floor_attr . '>' . $title_html . '<div class="post-avatar">' . $avatar . '</div><div class="post-body"><div class="post-head' . ($floor > 0 ? ' has-floor' : '') . '"><div class="post-info"><a class="post-title post-author" href="' . h(route_url('user', ['id' => (int)$row['user_id']])) . '">' . h($row['username']) . '</a><span class="post-time">' . human_time($time) . '</span></div></div><div class="post-meta">' . $tags_html . '</div></div><div class="post-content">' . $body_html . $ops_html . '</div></li>';
+    $mention_html = (string)($ctx['mention_html'] ?? '');
+    if ($mention_html !== '') $body_html = $mention_html . $body_html;
+    $html = '<' . $row_tag . ' class="post-item post-entry' . ($has_title ? ' has-title' : '') . ($highlight ? ' post-highlight' : '') . '" id="post-' . (int)($row['id'] ?? 0) . '" data-slot="' . $row_slots . '"' . $floor_attr . '>' . $title_html . '<div class="post-avatar">' . $avatar . '</div><div class="post-body"><div class="post-head' . ($floor > 0 ? ' has-floor' : '') . '"><div class="post-info"><a class="post-title post-author" href="' . h(route_url('user', ['id' => (int)$row['user_id']])) . '">' . h($row['username']) . '</a><span class="post-time">' . human_time($time) . '</span></div></div><div class="post-meta">' . $tags_html . '</div></div><div class="post-content">' . $body_html . $ops_html . '</div>' . $close_tag;
     $html = (string)hook($is_reply ? 'reply.after_render' : 'topic.after_render', $html, ['row' => $row, 'body' => $body] + $ctx);
     $anchor = html_anchor($is_reply ? 'reply' : 'post', (int)($row['id'] ?? 0));
-    if (str_ends_with($html, '</li>')) {
-        $html = substr($html, 0, -5) . $anchor . '</li>';
+    if (str_ends_with($html, $close_tag)) {
+        $html = substr($html, 0, -strlen($close_tag)) . $anchor . $close_tag;
     } else {
-        $end = strrpos($html, '</li>');
+        $end = strrpos($html, $close_tag);
         $html = $end === false ? $html . $anchor : substr($html, 0, $end) . $anchor . substr($html, $end);
     }
     $content_after = (string)hook($is_reply ? 'reply.content_after' : 'topic.content_after', '', ['row' => $row, 'body' => $body, 'topic_id' => $topic_id] + $ctx);
@@ -1903,6 +1917,57 @@ function quote_reply_action(array $row, int $floor = 0): string
 {
     $floor_attr = $floor > 0 ? ' data-floor="' . $floor . '"' : '';
     return '<a class="icon-action icon-quote quote-reply" href="#reply" data-username="' . h((string)$row['username']) . '"' . $floor_attr . ' title="Reply"><span>Reply</span></a>';
+}
+function reply_to_action(array $row): string
+{
+    return '<a class="icon-action icon-reply-to reply-to" href="#reply" data-reply-to="' . (int)($row['id'] ?? 0) . '" data-username="' . h((string)($row['username'] ?? '')) . '" title="Reply to this reply"><span>Reply</span></a>';
+}
+function reply_tree_enabled(): bool
+{
+    static $enabled = null;
+    if ($enabled === null) {
+        try {
+            $enabled = isset(app_db_columns(db(), db_driver(), 'app_replies')['parent_id']);
+        } catch (Throwable) {
+            $enabled = false;
+        }
+    }
+    return $enabled;
+}
+function reply_parent_row(array $reply): ?array
+{
+    $parent_id = (int)($reply['parent_id'] ?? 0);
+    if ($parent_id <= 0) return null;
+    $parent = row('app_replies', 'id', $parent_id);
+    return $parent && (int)$parent['topic_id'] === (int)($reply['topic_id'] ?? 0) ? $parent : null;
+}
+function reply_depth(array $reply): int
+{
+    $depth = 1;
+    $seen = [(int)($reply['id'] ?? 0) => true];
+    $current = $reply;
+    while (($parent = reply_parent_row($current)) !== null) {
+        if (isset($seen[(int)$parent['id']]) || $depth > 100) break;
+        $seen[(int)$parent['id']] = true;
+        $depth++;
+        $current = $parent;
+    }
+    return $depth;
+}
+function reply_root_id(array $reply): int
+{
+    $root = $reply;
+    $seen = [(int)($reply['id'] ?? 0) => true];
+    while (($parent = reply_parent_row($root)) !== null) {
+        if (isset($seen[(int)$parent['id']])) break;
+        $seen[(int)$parent['id']] = true;
+        $root = $parent;
+    }
+    return (int)$root['id'];
+}
+function reply_root_condition(): string
+{
+    return '(parent_id=0 OR NOT EXISTS (SELECT 1 FROM app_replies p WHERE p.id=app_replies.parent_id AND p.topic_id=app_replies.topic_id))';
 }
 function topic_list_select_columns(): string
 {
@@ -2295,7 +2360,7 @@ function can_manage_reply(array $r): bool
 }
 function refresh_topic_stats(int $tid): void
 {
-    q("UPDATE app_topics SET reply_count=(SELECT COUNT(*) FROM app_replies WHERE topic_id=?),last_reply_at=COALESCE((SELECT created_at FROM app_replies WHERE topic_id=? ORDER BY created_at DESC,id DESC LIMIT 1),created_at),last_reply_user_id=COALESCE((SELECT user_id FROM app_replies WHERE topic_id=? ORDER BY created_at DESC,id DESC LIMIT 1),0) WHERE id=?", [$tid, $tid, $tid, $tid]);
+    q("UPDATE app_topics SET reply_count=(SELECT COUNT(*) FROM app_replies WHERE topic_id=?),last_reply_at=COALESCE((SELECT created_at FROM app_replies WHERE topic_id=? AND body<>'' ORDER BY created_at DESC,id DESC LIMIT 1),created_at),last_reply_user_id=COALESCE((SELECT user_id FROM app_replies WHERE topic_id=? AND body<>'' ORDER BY created_at DESC,id DESC LIMIT 1),0) WHERE id=?", [$tid, $tid, $tid, $tid]);
 }
 function require_password_length(string $password): void
 {
@@ -2606,14 +2671,27 @@ function save_reply(): array
     $author_id = (int)$author['user_id'];
     $body = $author['body'];
     if ($body === '') err('Reply cannot be empty');
+    $parent_id = 0;
+    if (reply_tree_enabled()) {
+        $parent_id = max(0, (int)($_POST['parent_id'] ?? 0));
+        if ($parent_id > 0) {
+            $parent = row('app_replies', 'id', $parent_id);
+            if (!$parent || (int)$parent['topic_id'] !== $tid || trim((string)$parent['body']) === '') err('The reply you are replying to does not exist or has been deleted');
+            if (reply_depth($parent) >= 5) err('Maximum reply depth (5) reached.');
+        }
+    }
     $ts = now();
-    $rid = tx(function () use ($tid, $author_id, $body, $ts) {
-        q("INSERT INTO app_replies(topic_id,user_id,body,created_at,updated_at) VALUES(?,?,?,?,?)", [$tid, $author_id, $body, $ts, $ts]);
+    $rid = tx(function () use ($tid, $author_id, $body, $ts, $parent_id) {
+        if (reply_tree_enabled()) {
+            q("INSERT INTO app_replies(topic_id,user_id,parent_id,body,created_at,updated_at) VALUES(?,?,?,?,?,?)", [$tid, $author_id, $parent_id, $body, $ts, $ts]);
+        } else {
+            q("INSERT INTO app_replies(topic_id,user_id,body,created_at,updated_at) VALUES(?,?,?,?,?)", [$tid, $author_id, $body, $ts, $ts]);
+        }
         $rid = app_db_last_insert_id('app_replies');
         reply_fts_sync($rid, $body);
         q("UPDATE app_users SET last_post_at=? WHERE id=?", [$ts, $author_id]);
         q("UPDATE app_topics SET reply_count=reply_count+1,last_reply_at=?,last_reply_user_id=? WHERE id=?", [$ts, $author_id, $tid]);
-        create_reply_notifications($tid, $rid, $body, $author_id);
+        create_reply_notifications($tid, $rid, $body, $author_id, $parent_id);
         return $rid;
     });
     fire('reply.after_save', ['id' => $rid, 'topic_id' => $tid, 'body' => $body, 'user_id' => $author_id, 'editing' => false]);
@@ -2708,6 +2786,25 @@ function apply_reply_floors(array $replies, array $topic, int $page, int $size, 
     }
     return $replies;
 }
+function delete_reply_row(array $record): void
+{
+    if (trim((string)$record['body']) === '') err('This reply has been deleted');
+    fire('content.before_delete', ['table' => 'replies', 'row' => $record]);
+    reply_fts_delete((int)$record['id']);
+    $has_children = reply_tree_enabled() && (int)val('SELECT COUNT(*) FROM app_replies WHERE parent_id=?', [(int)$record['id']]) > 0;
+    if ($has_children) {
+        // The reply has children: keep a placeholder row so the subtree is not
+        // orphaned. The row keeps its floor and stays counted in reply_count
+        // (refresh_topic_stats counts rows); only the body is cleared, and the
+        // topic page renders it as "This reply was deleted." with no author.
+        q("UPDATE app_replies SET body='',updated_at=? WHERE id=?", [now(), (int)$record['id']]);
+    } else {
+        floor_index_record((int)$record['topic_id'], (int)$record['id'], (int)$record['created_at']);
+        q('DELETE FROM app_replies WHERE id=?', [(int)$record['id']]);
+        refresh_topic_stats((int)$record['topic_id']);
+    }
+    content_delete_notify($record, true, (int)$record['topic_id']);
+}
 function del(string $table, int $id, bool $with_replies = false): void
 {
     $tables = [
@@ -2728,13 +2825,7 @@ function del(string $table, int $id, bool $with_replies = false): void
         $affected_topics = $table === 'users' ? q("SELECT DISTINCT topic_id FROM app_replies WHERE user_id=?", [$id])->fetchAll() : [];
         tx(function () use ($table, $tables, $id, $record, $affected_topics, $with_replies) {
             if ($table === 'replies') {
-                if (trim((string)$record['body']) === '') err('This reply has been deleted');
-                fire('content.before_delete', ['table' => 'replies', 'row' => $record]);
-                reply_fts_delete($id);
-                floor_index_record((int)$record['topic_id'], $id, (int)$record['created_at']);
-                q('DELETE FROM app_replies WHERE id=?', [$id]);
-                refresh_topic_stats((int)$record['topic_id']);
-                content_delete_notify($record, true, (int)$record['topic_id']);
+                delete_reply_row($record);
                 return;
             }
             if ($table === 'topics' && $with_replies) {
@@ -3088,14 +3179,109 @@ function topic_page_replies(array $topic, int $page, int $size, int $offset, boo
         return is_array($loaded) ? $loaded : $data;
     }
     $order = $reply_desc ? 'created_at DESC,id DESC' : 'created_at,id';
-    $replies = q("SELECT * FROM app_replies WHERE topic_id=? ORDER BY $order LIMIT ? OFFSET ?", [(int)$topic['id'], $size, $offset])->fetchAll();
-    $posts = attach_users(array_merge([$topic], $replies));
+    if (!reply_tree_enabled()) {
+        $replies = q("SELECT * FROM app_replies WHERE topic_id=? ORDER BY $order LIMIT ? OFFSET ?", [(int)$topic['id'], $size, $offset])->fetchAll();
+        $posts = attach_users(array_merge([$topic], $replies));
+        $topic = array_shift($posts);
+        $replies = $posts;
+        $data = ['topic' => $topic, 'replies' => $replies];
+        $loaded = hook('topic.replies_data.loaded', $data, $ctx);
+        if (is_array($loaded)) $data = $loaded;
+        return $data;
+    }
+    $topic_id = (int)$topic['id'];
+    $root_condition = reply_root_condition();
+    $root_total = (int)val("SELECT COUNT(*) FROM app_replies WHERE topic_id=? AND $root_condition", [$topic_id]);
+    $roots = q("SELECT * FROM app_replies WHERE topic_id=? AND $root_condition ORDER BY $order LIMIT ? OFFSET ?", [$topic_id, $size, $offset])->fetchAll();
+    $by_parent = [];
+    $all = $roots;
+    $frontier = array_map(static fn(array $r): int => (int)$r['id'], $roots);
+    $guard = 0;
+    while ($frontier !== [] && $guard++ < 10) {
+        $marks = sql_marks(count($frontier));
+        $children = q("SELECT * FROM app_replies WHERE topic_id=? AND parent_id IN ($marks) ORDER BY created_at,id", array_merge([$topic_id], $frontier))->fetchAll();
+        $frontier = [];
+        foreach ($children as $child) {
+            $by_parent[(int)$child['parent_id']][] = $child;
+            $all[] = $child;
+            $frontier[] = (int)$child['id'];
+        }
+    }
+    $posts = attach_users(array_merge([$topic], $all));
     $topic = array_shift($posts);
-    $replies = $posts;
-    $data = ['topic' => $topic, 'replies' => $replies];
+    $by_id = [];
+    foreach ($posts as $post) $by_id[(int)$post['id']] = $post;
+    $children_of = [];
+    foreach ($by_parent as $pid => $kids) {
+        foreach ($kids as $kid) $children_of[$pid][] = $by_id[(int)$kid['id']];
+    }
+    $build = function (array $row, int $depth) use (&$build, $children_of, $topic_id): array {
+        $node = $row;
+        $node['tree_depth'] = $depth;
+        $node['reply_floor'] = reply_position_floor($topic_id, (int)$row['created_at'], (int)$row['id']);
+        $node['children'] = [];
+        foreach ($children_of[(int)$row['id']] ?? [] as $kid) $node['children'][] = $build($kid, $depth + 1);
+        return $node;
+    };
+    $tree = [];
+    $flat = [];
+    $append_flat = function (array $node) use (&$append_flat, &$flat): void {
+        $kids = $node['children'] ?? [];
+        unset($node['children']);
+        $flat[] = $node;
+        foreach ($kids as $kid) $append_flat($kid);
+    };
+    foreach ($roots as $root_row) {
+        $node = $build($by_id[(int)$root_row['id']], 1);
+        $tree[] = $node;
+        $append_flat($node);
+    }
+    $data = ['topic' => $topic, 'replies' => $flat, 'tree' => $tree, 'root_total' => $root_total];
     $loaded = hook('topic.replies_data.loaded', $data, $ctx);
     if (is_array($loaded)) $data = $loaded;
     return $data;
+}
+function reply_node_html(array $node, array $topic, array $ctx): array
+{
+    $child_html = [];
+    $descendants = 0;
+    foreach ($node['children'] ?? [] as $child) {
+        [$html, $count] = reply_node_html($child, $topic, $ctx);
+        if ($html === '') continue;
+        $child_html[] = $html;
+        $descendants += 1 + $count;
+    }
+    $is_placeholder = trim((string)($node['body'] ?? '')) === '';
+    if ($is_placeholder && $child_html === []) return ['', 0];
+    $depth = (int)($node['tree_depth'] ?? 1);
+    $reply_floor = (int)($node['reply_floor'] ?? 0);
+    if ($is_placeholder) {
+        $card = '<div class="post-item post-entry reply-deleted" id="post-' . (int)$node['id'] . '"' . ($reply_floor > 0 ? ' data-floor="' . $reply_floor . '"' : '') . '><div class="post-body"><div class="post-content"><span class="reply-deleted-text">This reply was deleted.</span></div></div></div>';
+    } else {
+        $ops = '';
+        if (!empty($ctx['logged_in'])) {
+            $ops = quote_reply_action($node, $reply_floor);
+            if ($depth < 5) $ops .= reply_to_action($node);
+        }
+        $row_ctx = ['reply_position' => $reply_floor, 'page' => (int)($ctx['page'] ?? 0), 'page_size' => (int)($ctx['page_size'] ?? 0), 'forum_id' => (int)($ctx['forum_id'] ?? 0), 'list' => false, 'row_tag' => 'div'];
+        $parent_id = (int)($node['parent_id'] ?? 0);
+        if ($depth > 1 && $parent_id > 0) {
+            $parent_name = (string)($ctx['usernames'][$parent_id] ?? '');
+            if ($parent_name !== '') $row_ctx['mention_html'] = '<a class="reply-parent-mention" href="#post-' . $parent_id . '">@' . h($parent_name) . '</a> ';
+        }
+        $highlight = (int)($ctx['highlight_floor'] ?? 0) > 0 ? $reply_floor === (int)$ctx['highlight_floor'] : (int)$node['id'] === (int)($ctx['highlight_reply_id'] ?? 0);
+        $card = topic_post_row($node, (string)$node['body'], (int)$node['created_at'], $ops, '', '', $highlight, $row_ctx);
+    }
+    $html = '<li class="reply-node" data-reply-id="' . (int)$node['id'] . '" data-depth="' . $depth . '">' . $card;
+    if ($child_html !== []) {
+        $hidden_label = $descendants === 1 ? '1 reply hidden' : $descendants . ' replies hidden';
+        $html .= '<div class="reply-subtree"><button type="button" class="reply-collapse-toggle" data-reply-toggle="' . (int)$node['id'] . '" aria-expanded="true" aria-label="Collapse replies">−</button><span class="reply-hidden-count">' . $hidden_label . '</span><ul class="reply-children">' . implode('', $child_html) . '</ul></div>';
+    }
+    return [$html . '</li>', $descendants];
+}
+function render_reply_node(array $node, array $topic, array $ctx): string
+{
+    return reply_node_html($node, $topic, $ctx)[0];
 }
 function topic_page_template(array $view): string
 {
@@ -3108,21 +3294,30 @@ function topic_page_template(array $view): string
     $topic_url = route_url('topic', ['id' => (int)$t['id']]);
     $main = '<div class="topic-header">' . $breadcrumb . '<div class="post-topic-title"><h1 class="post-content-title"><a href="' . h($topic_url) . '">' . h($t['title']) . '</a></h1>' . topic_stats_html((int)$t['view_count'], (int)$t['reply_count']) . '</div></div><ul class="post-list topic-post-list">';
     if ($p === 1) $main .= topic_post_row($t, $t['body'], (int)$t['created_at'], $topic_ops, '', '', false, ['page' => $p, 'page_size' => $size, 'forum_id' => (int)$forum['id'], 'list' => false]);
-    foreach ($replies as $i => $r) {
-        $reply_floor = (int)($r['reply_floor'] ?? ($reply_desc ? (int)$t['reply_count'] - $off - $i : $off + $i + 1));
-        if (trim((string)$r['body']) === '') continue;
-        $reply_ops = uid() ? quote_reply_action($r, $reply_floor) : '';
-        $main .= topic_post_row($r, $r['body'], (int)$r['created_at'], $reply_ops, '', '', $floor > 0 ? $reply_floor === $floor : (int)$r['id'] === $replyid, ['reply_position' => $reply_floor, 'page' => $p, 'page_size' => $size, 'forum_id' => (int)$forum['id'], 'list' => false]);
+    if (isset($tree) && is_array($tree)) {
+        $usernames = [];
+        foreach ($replies as $r) $usernames[(int)$r['id']] = (string)($r['username'] ?? '');
+        $node_ctx = ['logged_in' => (bool)uid(), 'page' => $p, 'page_size' => $size, 'forum_id' => (int)$forum['id'], 'highlight_floor' => $floor, 'highlight_reply_id' => $replyid, 'usernames' => $usernames];
+        foreach ($tree as $node) $main .= render_reply_node($node, $t, $node_ctx);
+        if (!$tree && (int)$t['reply_count'] === 0) $main .= '<li class="empty-state">No replies yet</li>';
+        $pagination = paginate((int)($root_total ?? 0), $p, $size, $topic_url, false);
+    } else {
+        foreach ($replies as $i => $r) {
+            $reply_floor = (int)($r['reply_floor'] ?? ($reply_desc ? (int)$t['reply_count'] - $off - $i : $off + $i + 1));
+            if (trim((string)$r['body']) === '') continue;
+            $reply_ops = uid() ? quote_reply_action($r, $reply_floor) : '';
+            $main .= topic_post_row($r, $r['body'], (int)$r['created_at'], $reply_ops, '', '', $floor > 0 ? $reply_floor === $floor : (int)$r['id'] === $replyid, ['reply_position' => $reply_floor, 'page' => $p, 'page_size' => $size, 'forum_id' => (int)$forum['id'], 'list' => false]);
+        }
+        if (!$replies && (int)$t['reply_count'] === 0) $main .= '<li class="empty-state">No replies yet</li>';
+        $pagination = paginate((int)$t['reply_count'], $p, $size, $topic_url, false);
     }
-    if (!$replies && (int)$t['reply_count'] === 0) $main .= '<li class="empty-state">No replies yet</li>';
-    $pagination = paginate((int)$t['reply_count'], $p, $size, $topic_url, false);
     $main .= '</ul>' . ($pagination !== '' ? '<div class="pagination-bar">' . $pagination . '</div>' : '');
     $can_reply_forum = forum_group_allowed($forum, 'allow_reply_groups');
     $reply_status = uid() ? (can_speak() ? ($can_reply_forum ? 'Say something' : 'No reply permission') : 'You are muted') : 'Log in to reply';
     $main .= '<div class="reply-panel" id="reply"><div class="reply-panel-head"><h3>Post a Reply</h3><span class="reply-status">' . $reply_status . '</span></div>';
     if (can_speak() && $can_reply_forum) {
         $reply_form_extra = (string)hook('reply.form_extra', '', ['topic' => $t, 'editing' => false]);
-        $main .= '<form class="ajax-reply-form" method="post" action="' . h(route_url('reply_edit')) . '" data-slot="reply.form_extra">' . form_token() . '<input type="hidden" name="topic_id" value="' . (int)$t['id'] . '">' . textarea('Body', 'body', '', true) . $reply_form_extra . '<button type="submit" data-loading-text="Posting">Reply</button></form>';
+        $main .= '<form class="ajax-reply-form" method="post" action="' . h(route_url('reply_edit')) . '" data-slot="reply.form_extra">' . form_token() . '<input type="hidden" name="topic_id" value="' . (int)$t['id'] . '"><input type="hidden" name="parent_id" value="0" data-reply-parent><div class="reply-target" data-reply-target hidden><span>Replying to <a href="#" data-reply-target-link>@user</a></span><button type="button" class="reply-target-cancel" data-reply-target-cancel>Cancel</button></div>' . textarea('Body', 'body', '', true) . $reply_form_extra . '<button type="submit" data-loading-text="Posting">Reply</button></form>';
     } elseif (!uid()) $main .= '<div class="reply-login-box"><a href="' . h(route_url('login')) . '">Log in to reply</a></div>';
     elseif (!$can_reply_forum) $main .= '<div class="reply-login-box disabled">Your user group cannot reply in this board</div>';
     else $main .= '<div class="reply-login-box disabled">You are not allowed to speak</div>';
@@ -3152,6 +3347,28 @@ function topic_page(): void
             $floor = (int)$t['reply_count'] + $gap_count;
             $_GET['floor'] = (string)$floor;
         }
+    }
+    if (reply_tree_enabled() && ($floor > 0 || $replyid > 0)) {
+        $target = null;
+        if ($floor > 0) {
+            $anchor_pos = floor_live_position((int)$t['id'], $floor);
+            $target_id = (int)val('SELECT id FROM app_replies WHERE topic_id=? ORDER BY created_at,id LIMIT 1 OFFSET ?', [(int)$t['id'], max(0, $anchor_pos - 1)]);
+            if ($target_id > 0) $target = row('app_replies', 'id', $target_id);
+        } else {
+            $target = row('app_replies', 'id', $replyid);
+            if ($target && (int)$target['topic_id'] !== (int)$t['id']) $target = null;
+            if (!$target) err('The reply does not exist or has been deleted', 404);
+        }
+        if ($target) {
+            $root = row('app_replies', 'id', reply_root_id($target));
+            if ($root) {
+                $root_condition = reply_root_condition();
+                $cmp = $reply_desc ? '>' : '<';
+                $before = (int)val("SELECT COUNT(*) FROM app_replies WHERE topic_id=? AND $root_condition AND (created_at$cmp? OR (created_at=? AND id$cmp?))", [(int)$t['id'], (int)$root['created_at'], (int)$root['created_at'], (int)$root['id']]);
+                $_GET['p'] = (string)(intdiv($before, $size) + 1);
+            }
+        }
+    } elseif ($floor > 0) {
         $anchor_pos = floor_live_position((int)$t['id'], $floor);
         $_GET['p'] = (string)max(1, $reply_desc ? (int)(((int)$t['reply_count'] - $anchor_pos) / $size) + 1 : (int)(($anchor_pos - 1) / $size) + 1);
     } elseif ($replyid > 0) {
@@ -3168,7 +3385,7 @@ function topic_page(): void
     $off = ($p - 1) * $size;
     $page_data = topic_page_replies($t, $p, $size, $off, $reply_desc);
     $t = $page_data['topic'];
-    $replies = apply_reply_floors($page_data['replies'], $t, $p, $size, $reply_desc);
+    $replies = isset($page_data['tree']) ? $page_data['replies'] : apply_reply_floors($page_data['replies'], $t, $p, $size, $reply_desc);
     $filtered_replies = hook('topic.replies', $replies, [
         'topic' => $t,
         'page' => $p,
@@ -3178,7 +3395,7 @@ function topic_page(): void
     ]);
     if (is_array($filtered_replies)) $replies = $filtered_replies;
     fire('topic.after_view', ['topic' => $t, 'replies' => $replies, 'page' => $p, 'page_size' => $size, 'reply_count' => (int)$t['reply_count']]);
-    $view = compact('t', 'forum', 'replies', 'p', 'size', 'off', 'reply_desc', 'replyid', 'floor') + ['topic' => $t, 'page' => $p, 'page_size' => $size, 'offset' => $off, 'reply_order' => $reply_desc ? 1 : 0];
+    $view = compact('t', 'forum', 'replies', 'p', 'size', 'off', 'reply_desc', 'replyid', 'floor') + ['topic' => $t, 'page' => $p, 'page_size' => $size, 'offset' => $off, 'reply_order' => $reply_desc ? 1 : 0, 'tree' => $page_data['tree'] ?? null, 'root_total' => $page_data['root_total'] ?? null];
     page($t['title'] . ' - ' . $forum['name'], topic_page_template($view), page_seo('topic', ['id' => (int)$t['id']], (string)$t['body']));
 }
 function topic_edit_page(): void
@@ -3234,12 +3451,7 @@ function reply_edit_page(): void
         if (is_post_request() && ($_POST['do'] ?? '') === 'delete') {
             if (trim((string)$r['body']) === '') err('This reply has been deleted');
             tx(function () use ($r) {
-                fire('content.before_delete', ['table' => 'replies', 'row' => $r]);
-                reply_fts_delete((int)$r['id']);
-                floor_index_record((int)$r['topic_id'], (int)$r['id'], (int)$r['created_at']);
-                q('DELETE FROM app_replies WHERE id=?', [(int)$r['id']]);
-                refresh_topic_stats((int)$r['topic_id']);
-                content_delete_notify($r, true, (int)$r['topic_id']);
+                delete_reply_row($r);
             });
             go(route_url('topic', ['id' => (int)$r['topic_id']]));
         }
@@ -3254,10 +3466,26 @@ function reply_edit_page(): void
             $row = attach_users([$row])[0];
             $topic = row('app_topics', 'id', $saved['topic_id']) ?: ['view_count' => 0, 'reply_count' => 0, 'reply_order' => 0];
             $floor = reply_position_floor((int)$topic['id'], (int)$row['created_at'], (int)$row['id']);
-            $ops = quote_reply_action($row, $floor);
-            if ((int)($topic['reply_order'] ?? 0) === 1) go(route_url('topic', ['id' => $saved['topic_id'], 'replyid' => $saved['reply_id']]));
-            $reply_html = topic_post_row($row, $row['body'], (int)$row['created_at'], $ops, '', '', false, ['reply_position' => $floor, 'forum_id' => (int)($topic['forum_id'] ?? 0), 'list' => false]);
-            $payload = ['ok' => 1, 'html' => $reply_html, 'stats_html' => topic_stats_html((int)$topic['view_count'], (int)$topic['reply_count'])];
+            $parent_id = reply_tree_enabled() ? (int)($row['parent_id'] ?? 0) : 0;
+            if ($parent_id === 0 && (int)($topic['reply_order'] ?? 0) === 1) go(route_url('topic', ['id' => $saved['topic_id'], 'replyid' => $saved['reply_id']]));
+            if (reply_tree_enabled()) {
+                $depth = reply_depth($row);
+                $usernames = [];
+                if ($parent_id > 0) {
+                    $parent = row('app_replies', 'id', $parent_id);
+                    if ($parent) $usernames[$parent_id] = (string)(attach_users([$parent])[0]['username'] ?? '');
+                }
+                $node = $row;
+                $node['tree_depth'] = $depth;
+                $node['reply_floor'] = $floor;
+                $node['children'] = [];
+                $reply_html = render_reply_node($node, $topic, ['logged_in' => true, 'page' => 0, 'page_size' => 0, 'forum_id' => (int)($topic['forum_id'] ?? 0), 'highlight_floor' => 0, 'highlight_reply_id' => 0, 'usernames' => $usernames]);
+                $payload = ['ok' => 1, 'html' => $reply_html, 'stats_html' => topic_stats_html((int)$topic['view_count'], (int)$topic['reply_count']), 'reply_id' => (int)$row['id'], 'parent_id' => $parent_id, 'depth' => $depth];
+            } else {
+                $ops = quote_reply_action($row, $floor);
+                $reply_html = topic_post_row($row, $row['body'], (int)$row['created_at'], $ops, '', '', false, ['reply_position' => $floor, 'forum_id' => (int)($topic['forum_id'] ?? 0), 'list' => false]);
+                $payload = ['ok' => 1, 'html' => $reply_html, 'stats_html' => topic_stats_html((int)$topic['view_count'], (int)$topic['reply_count'])];
+            }
             $reply_assets_css = Plugin::plugin_assets_ondemand_html('css');
             $reply_assets_js = Plugin::plugin_assets_ondemand_html('js');
             if ($reply_assets_css !== '') $payload['assets_css'] = $reply_assets_css;

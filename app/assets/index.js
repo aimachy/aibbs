@@ -68,7 +68,7 @@ const togglePluginDesc = button => {
     const open = !row.classList.contains("is-desc-open");
     row.classList.toggle("is-desc-open", open);
     button.setAttribute("aria-expanded", open ? "true" : "false");
-    button.textContent = open ? "收起" : "展开";
+    button.textContent = open ? "Collapse" : "Expand";
     syncPluginDescToggles();
 };
 let pluginDescSyncTimer = 0;
@@ -130,7 +130,7 @@ const openMobileMenu = async () => {
     const body = mobileMenu.querySelector(".mobile-menu-body");
     if (!body || body.dataset.loaded) return;
     body.dataset.loaded = "loading";
-    body.textContent = "加载中…";
+    body.textContent = "Loading...";
     try {
         const response = await fetch(mobileMenu.dataset.mobileMenuUrl, {headers: {"X-Requested-With": "XMLHttpRequest"}});
         if (!response.ok) throw new Error();
@@ -138,7 +138,7 @@ const openMobileMenu = async () => {
         body.dataset.loaded = "1";
     } catch {
         delete body.dataset.loaded;
-        body.textContent = "加载失败，请重新打开菜单";
+        body.textContent = "Failed to load. Please reopen the menu";
     }
 };
 if (mobileMenuOpen) mobileMenuOpen.addEventListener("click", openMobileMenu);
@@ -194,7 +194,7 @@ const _openModalBox = (title, fallback, builderFn) => new Promise(resolve => {
     const cancel = document.createElement("button");
     cancel.type = "button";
     cancel.className = "btn alt";
-    cancel.textContent = "取消";
+    cancel.textContent = "Cancel";
     const ok = document.createElement("button");
     ok.type = "button";
     ok.className = "danger";
@@ -205,7 +205,7 @@ const _openModalBox = (title, fallback, builderFn) => new Promise(resolve => {
     if (focusEl === ok || focusEl === cancel) return;
     if (focusEl.select) focusEl.select();
 });
-const openConfirm = (message, title = "确认操作") => _openModalBox(title, false, (box, cancel, ok) => {
+const openConfirm = (message, title = "Confirm") => _openModalBox(title, false, (box, cancel, ok) => {
     box.className = "confirm-box";
     const text = document.createElement("p");
     text.className = "confirm-message";
@@ -213,7 +213,7 @@ const openConfirm = (message, title = "确认操作") => _openModalBox(title, fa
     const actions = document.createElement("div");
     actions.className = "confirm-actions";
     cancel.addEventListener("click", () => finishConfirm(false));
-    ok.textContent = "确定";
+    ok.textContent = "OK";
     ok.addEventListener("click", () => finishConfirm(true));
     actions.append(cancel, ok);
     box.append(text, actions);
@@ -224,10 +224,10 @@ document.addEventListener("click", e => {
     if (!button) return;
     const template = document.querySelector("[data-plugin-upload-template]");
     if (!template) return;
-    openModal("插件上传", template.innerHTML);
+    openModal("Upload Plugin", template.innerHTML);
     modalBody?.querySelector("[data-plugin-upload-file]")?.focus();
 });
-const openPluginUninstallConfirm = (message, title = "卸载插件") => _openModalBox(title, false, (box, cancel, ok) => {
+const openPluginUninstallConfirm = (message, title = "Uninstall Plugin") => _openModalBox(title, false, (box, cancel, ok) => {
     box.className = "confirm-box";
     const text = document.createElement("p");
     text.className = "confirm-message";
@@ -238,18 +238,18 @@ const openPluginUninstallConfirm = (message, title = "卸载插件") => _openMod
     checkbox.type = "checkbox";
     checkbox.checked = true;
     const labelText = document.createElement("span");
-    labelText.textContent = "保留插件数据";
+    labelText.textContent = "Keep plugin data";
     option.append(checkbox, labelText);
     const actions = document.createElement("div");
     actions.className = "confirm-actions";
     cancel.addEventListener("click", () => finishConfirm(false));
-    ok.textContent = "卸载";
+    ok.textContent = "Uninstall";
     ok.addEventListener("click", () => finishConfirm({keepData: checkbox.checked}));
     actions.append(cancel, ok);
     box.append(text, option, actions);
     return checkbox;
 });
-const openPluginMarketInstallConfirm = (message, action = "安装") => _openModalBox(action + "插件", false, (box, cancel, ok) => {
+const openPluginMarketInstallConfirm = (message, action = "Install") => _openModalBox(action + " Plugin", false, (box, cancel, ok) => {
     box.className = "confirm-box";
     const text = document.createElement("p");
     text.className = "confirm-message";
@@ -260,7 +260,7 @@ const openPluginMarketInstallConfirm = (message, action = "安装") => _openModa
     checkbox.type = "checkbox";
     checkbox.checked = true;
     const labelText = document.createElement("span");
-    labelText.textContent = "自动启用插件";
+    labelText.textContent = "Enable the plugin automatically";
     option.append(checkbox, labelText);
     const actions = document.createElement("div");
     actions.className = "confirm-actions";
@@ -271,7 +271,7 @@ const openPluginMarketInstallConfirm = (message, action = "安装") => _openModa
     box.append(text, option, actions);
     return checkbox;
 });
-const openPrompt = (message, title = "请输入", value = "1") => _openModalBox(title, null, (box, cancel, ok) => {
+const openPrompt = (message, title = "Enter a value", value = "1") => _openModalBox(title, null, (box, cancel, ok) => {
     box.className = "confirm-box prompt-box";
     const text = document.createElement("p");
     text.className = "confirm-message";
@@ -286,7 +286,7 @@ const openPrompt = (message, title = "请输入", value = "1") => _openModalBox(
     actions.className = "confirm-actions";
     const done = () => { finishConfirm(String(Math.max(1, parseInt(input.value || "1", 10) || 1))); };
     cancel.addEventListener("click", () => finishConfirm(null));
-    ok.textContent = "确定";
+    ok.textContent = "OK";
     ok.addEventListener("click", done);
     input.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); done(); } });
     actions.append(cancel, ok);
@@ -300,18 +300,18 @@ window.openNotify = async function (url) {
         if ((response.headers.get("content-type") || "").includes("application/json")) {
             const data = JSON.parse(html);
             if (data.redirect) window.location.href = data.redirect;
-            else showToast(data.message || "打开失败");
+            else showToast(data.message || "Failed to open");
             return false;
         }
         const notifyPreview = document.createElement("div");
         notifyPreview.innerHTML = html;
         const username = notifyPreview.querySelector("[data-notify-username]")?.dataset.notifyUsername || "";
-        openModal(username ? `私信 @${username}` : "私信", html);
+        openModal(username ? `Message @${username}` : "Message", html);
         const textarea = modalBody?.querySelector("form")?.querySelector("textarea");
         textarea?.focus();
         textarea?.setSelectionRange(textarea.value.length, textarea.value.length);
     } catch (_) {
-        showToast("打开失败");
+        showToast("Failed to open");
     }
     return false;
 };
@@ -331,8 +331,8 @@ const runSettingsUpdateCheck = () => {
         if (!data?.update_available || !title || title.querySelector(".settings-update-dot")) return;
         const dot = document.createElement("i");
         dot.className = "settings-update-dot";
-        dot.title = "发现新版本";
-        dot.setAttribute("aria-label", "发现新版本");
+        dot.title = "New version available";
+        dot.setAttribute("aria-label", "New version available");
         title.appendChild(dot);
     }).catch(() => {});
 };
@@ -463,7 +463,7 @@ document.addEventListener("change", async e => {
     try {
         const response = await fetch(formActionUrl(form), {method: "POST", body, credentials: "same-origin", headers: {"X-Requested-With": "XMLHttpRequest"}});
         const data = await response.json();
-        if (!data?.ok) throw new Error(data?.message || "保存失败");
+        if (!data?.ok) throw new Error(data?.message || "Failed to save");
         const cardId = form.querySelector("input[name=plugin_id]")?.value || "";
         const cardEl = cardId ? document.querySelector('[data-plugin-id="' + cardId + '"]') : null;
         if (typeof data.card === "string" && data.card !== "" && cardEl) {
@@ -472,20 +472,20 @@ document.addEventListener("change", async e => {
                 const summaryEl = document.querySelector(".plugin-list-panel .admin-plugin-summary");
                 if (summaryEl) summaryEl.outerHTML = data.summary;
             }
-            showToast(data.message || "已保存");
+            showToast(data.message || "Saved");
             return;
         }
         const replaceTarget = form.dataset.replaceTarget || "";
         const replaceEl = replaceTarget ? form.closest(replaceTarget) : null;
         if (replaceEl && data.html) {
             replaceEl.outerHTML = data.html;
-            showToast(data.message || "已保存");
+            showToast(data.message || "Saved");
             return;
         }
-        showToast(data.message || "已保存");
+        showToast(data.message || "Saved");
     } catch (err) {
         input.checked = !previous;
-        showToast(err.message || "保存失败");
+        showToast(err.message || "Failed to save");
     } finally {
         input.disabled = false;
     }
@@ -548,7 +548,7 @@ const initTopicExtensions = () => {
         let initial = null;
         panels.forEach(panel => {
             const summary = panel.querySelector("details > summary");
-            const label = (summary?.querySelector("span")?.textContent || summary?.textContent || "扩展功能").trim() || "扩展功能";
+            const label = (summary?.querySelector("span")?.textContent || summary?.textContent || "Extensions").trim() || "Extensions";
             const card = document.createElement("button");
             card.type = "button";
             card.className = "topic-extension-card";
@@ -585,7 +585,7 @@ document.addEventListener("click", async e => {
     if (!link) return;
     e.preventDefault();
     e.stopPropagation();
-    if (await openConfirm(link.dataset.confirm || "确定操作？")) {
+    if (await openConfirm(link.dataset.confirm || "Are you sure?")) {
         window.location.href = link.href;
     }
 });
@@ -647,7 +647,7 @@ document.addEventListener("submit", async e => {
     if (e.defaultPrevented) return;
     if (window.bbs1AttachmentUpload?.isUploading(e.target)) {
         e.preventDefault();
-        showToast("附件上传中");
+        showToast("Uploading attachment");
         return;
     }
     const promptField = e.submitter?.dataset?.promptField || e.target?.dataset?.promptField || "";
@@ -656,7 +656,7 @@ document.addEventListener("submit", async e => {
         e.stopPropagation();
         e.stopImmediatePropagation();
         const input = e.target.elements?.[promptField];
-        const value = await openPrompt(e.submitter?.dataset?.promptMessage || e.target?.dataset?.promptMessage || "请输入", e.submitter?.dataset?.promptTitle || e.target?.dataset?.promptTitle || "请输入", e.submitter?.dataset?.promptValue || e.target?.dataset?.promptValue || input?.value || "1");
+        const value = await openPrompt(e.submitter?.dataset?.promptMessage || e.target?.dataset?.promptMessage || "Enter a value", e.submitter?.dataset?.promptTitle || e.target?.dataset?.promptTitle || "Enter a value", e.submitter?.dataset?.promptValue || e.target?.dataset?.promptValue || input?.value || "1");
         if (value === null || value === false) return;
         if (input) input.value = value;
         markButtonPending(e.submitter || e.target.querySelector("button[type=submit],button:not([type]),input[type=submit]"));
@@ -667,7 +667,7 @@ document.addEventListener("submit", async e => {
         e.preventDefault();
         e.stopPropagation();
         e.stopImmediatePropagation();
-        const result = await openPluginUninstallConfirm(e.target.dataset.confirm || "确定卸载插件？");
+        const result = await openPluginUninstallConfirm(e.target.dataset.confirm || "Uninstall this plugin?");
         if (!result) return;
         let input = e.target.elements?.keep_plugin_data;
         if (!input) {
@@ -681,7 +681,7 @@ document.addEventListener("submit", async e => {
         e.preventDefault();
         e.stopPropagation();
         e.stopImmediatePropagation();
-        const result = await openPluginMarketInstallConfirm(e.target.dataset.confirm || "确定安装插件？", e.target.dataset.pluginMarketAction || "安装");
+        const result = await openPluginMarketInstallConfirm(e.target.dataset.confirm || "Install this plugin?", e.target.dataset.pluginMarketAction || "Install");
         if (!result) return;
         let input = e.target.elements?.auto_enable;
         if (!input) {
@@ -722,12 +722,12 @@ document.addEventListener("submit", async e => {
                 button.textContent = loadingText;
             }
         }
-        if (status) status.textContent = "提交中";
+        if (status) status.textContent = "Submitting";
         try {
             window.bbs1AttachmentUpload?.beforeSubmit(replyForm);
             const response = await fetch(formActionUrl(replyForm), {method: "POST", body: new FormData(replyForm), headers: {"X-Requested-With": "XMLHttpRequest"}});
             const data = await response.json();
-            if (!data.ok) throw new Error(data.message || "提交失败");
+            if (!data.ok) throw new Error(data.message || "Submission failed");
             window.bbs1AttachmentUpload?.afterSubmit();
             if (data.redirect) {
                 window.location.href = data.redirect;
@@ -750,11 +750,11 @@ document.addEventListener("submit", async e => {
             }
             replyForm.reset();
             if (window.turnstile && replyForm.querySelector(".cf-turnstile")) window.turnstile.reset(replyForm.querySelector(".cf-turnstile"));
-            if (status) status.textContent = "已回复";
+            if (status) status.textContent = "Replied";
             if (data.tip) showToast(data.tip);
             document.dispatchEvent(new CustomEvent("bbs1:reply-saved", {detail: {form: replyForm, reply}}));
         } catch (err) {
-            const message = err?.message || "提交失败";
+            const message = err?.message || "Submission failed";
             if (status) status.textContent = message;
             showToast(message);
             if (window.turnstile && replyForm.querySelector(".cf-turnstile")) window.turnstile.reset(replyForm.querySelector(".cf-turnstile"));
@@ -779,19 +779,19 @@ document.addEventListener("submit", async e => {
             button.disabled = true;
             button.setAttribute("aria-busy", "true");
         }
-        if (status) status.textContent = "发送中";
+        if (status) status.textContent = "Sending";
         try {
             const response = await fetch(formActionUrl(notifyForm), {method: "POST", body: new FormData(notifyForm), headers: {"X-Requested-With": "XMLHttpRequest"}});
             const data = await response.json();
-            if (!data.ok) throw new Error(data.message || "发送失败");
+            if (!data.ok) throw new Error(data.message || "Failed to send");
             if (data.redirect) {
                 window.location.href = data.redirect;
                 return;
             }
             closeModal();
-            showToast(data.tip || data.message || "已发送");
+            showToast(data.tip || data.message || "Sent");
         } catch (err) {
-            showToast(err?.message || "发送失败");
+            showToast(err?.message || "Failed to send");
         } finally {
             if (button) {
                 button.disabled = false;
@@ -847,15 +847,15 @@ document.addEventListener("submit", async e => {
                 window.location.reload();
                 return;
             }
-            throw new Error("操作失败");
+            throw new Error("Operation failed");
         }
-        if (!data.ok) throw new Error(data.message || "操作失败");
+        if (!data.ok) throw new Error(data.message || "Operation failed");
         window.bbs1AttachmentUpload?.afterSubmit();
         const successMessage = data.tip && data.tip !== data.message
-            ? `${data.message || "操作完成"}，${data.tip}`
-            : (data.message || data.tip || "操作完成");
+            ? `${data.message || "Done"}, ${data.tip}`
+            : (data.message || data.tip || "Done");
         if (data.modal && typeof data.modal === "object") {
-            openModal(data.modal.title || data.message || "提示", data.modal.html || "");
+            openModal(data.modal.title || data.message || "Notice", data.modal.html || "");
             resetButton();
             return;
         }
@@ -899,7 +899,7 @@ document.addEventListener("submit", async e => {
         }
         if (data.redirect) setTimeout(() => { window.location.href = data.redirect; }, 800);
     } catch (err) {
-        showToast(err?.message || "操作失败");
+        showToast(err?.message || "Operation failed");
         if (window.turnstile && form.querySelector(".cf-turnstile")) window.turnstile.reset(form.querySelector(".cf-turnstile"));
         resetButton();
     }
@@ -973,7 +973,7 @@ window.addEventListener("load", () => {
         const label = item.querySelector("span") || item;
         const original = label.textContent;
         const finish = ok => {
-            label.textContent = ok ? "已复制" : "复制失败";
+            label.textContent = ok ? "Copied" : "Copy failed";
             window.setTimeout(() => {
                 closeMenu();
                 label.textContent = original;

@@ -2280,7 +2280,7 @@ input[type=checkbox][checked]:not(:checked) {
     border-color: var(--danger);
 }
 
-/* 后台设置 / 版块 / 用户组的添加编辑表单：外层开放式后需要自己成块 */
+/* Admin settings / board / user group add-edit forms: once the outer container is opened, these need their own block */
 .main-panel:has(>.tab-bar.admin-tabs)>.form-panel {
     padding: 12px;
     border: 1px solid var(--line);
@@ -3652,7 +3652,7 @@ table.list.admin-bulk-list {
     min-width: 0
 }
 
-/* 正文卡片里直接放标题块时，标题与下方表单/列表拉开间距 */
+/* When a heading block sits directly inside a body card, add spacing between the heading and the form/list below */
 .plugin-panel-body>.admin-plugin-summary {
     margin-bottom: 10px
 }

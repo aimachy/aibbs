@@ -55,7 +55,7 @@ final class Cron
         $interval = $task['interval'] ?? 0;
         if (is_string($interval) && !is_numeric($interval)) {
             Plugin::plugin_load($plugin);
-            $interval = Plugin::plugin_callback_exists($interval) ? $interval($plugin, $task) : throw new RuntimeException('计划任务间隔函数不存在');
+            $interval = Plugin::plugin_callback_exists($interval) ? $interval($plugin, $task) : throw new RuntimeException('Scheduled task interval function does not exist');
         }
         return min(31536000, max(60, (int)$interval));
     }
@@ -101,7 +101,7 @@ final class Cron
                 ])->rowCount();
                 if ($updated !== 1) return [];
                 if ((string)$task['status'] === 'running') {
-                    q("UPDATE app_cron_logs SET status='failed',message='任务租约超时',finished_at=? WHERE plugin_id=? AND task_name=? AND status='running' AND finished_at=0", [$now, (string)$task['plugin_id'], (string)$task['task_name']]);
+                    q("UPDATE app_cron_logs SET status='failed',message='Task lease timed out',finished_at=? WHERE plugin_id=? AND task_name=? AND status='running' AND finished_at=0", [$now, (string)$task['plugin_id'], (string)$task['task_name']]);
                 }
                 $task['lease_token'] = $token;
                 $task['last_started_at'] = $now;
@@ -173,9 +173,9 @@ final class Cron
         foreach ($rows as $row) {
             $plugin_id = (string)$row['plugin_id'];
             $task_name = (string)$row['task_name'];
-            $updated = q("UPDATE app_cron_tasks SET lease_token='',lease_until=0,available_at=?,status='failed',last_error='租约超时自动释放' WHERE plugin_id=? AND task_name=? AND status='running' AND lease_until>0 AND lease_until<?", [$now, $plugin_id, $task_name, $stale])->rowCount();
+            $updated = q("UPDATE app_cron_tasks SET lease_token='',lease_until=0,available_at=?,status='failed',last_error='Lease timed out and was released automatically' WHERE plugin_id=? AND task_name=? AND status='running' AND lease_until>0 AND lease_until<?", [$now, $plugin_id, $task_name, $stale])->rowCount();
             if ($updated !== 1) continue;
-            q("UPDATE app_cron_logs SET status='failed',message='任务租约超时',finished_at=? WHERE plugin_id=? AND task_name=? AND status='running' AND finished_at=0", [$now, $plugin_id, $task_name]);
+            q("UPDATE app_cron_logs SET status='failed',message='Task lease timed out',finished_at=? WHERE plugin_id=? AND task_name=? AND status='running' AND finished_at=0", [$now, $plugin_id, $task_name]);
         }
     }
 
@@ -213,10 +213,10 @@ final class Cron
                     debug_log_write('[cron] ' . $key . ' log failed', $e);
                 }
                 try {
-                    if (!$plugin || !Plugin::plugin_enabled($plugin)) throw new RuntimeException('插件未启用或不存在');
+                    if (!$plugin || !Plugin::plugin_enabled($plugin)) throw new RuntimeException('The plugin is not enabled or does not exist');
                     Plugin::plugin_load($plugin);
                     $callback = (string)$task['callback'];
-                    if (!Plugin::plugin_callback_exists($callback)) throw new RuntimeException('计划任务函数不存在');
+                    if (!Plugin::plugin_callback_exists($callback)) throw new RuntimeException('Scheduled task function does not exist');
                     $definition = (array)($plugin['cron'][$task_name] ?? []);
                     $definition['interval'] = (int)$task['interval_seconds'];
                     $value = $callback($plugin, $definition);
@@ -230,11 +230,11 @@ final class Cron
                     try {
                         if (!self::cron_task_finish($task, $status, $error, $finished_at)) {
                             $status = 'failed';
-                            $error = '任务租约已失效，运行结果未写入';
+                            $error = 'The task lease has expired; the run result was not saved';
                         }
                     } catch (Throwable $e) {
                         $status = 'failed';
-                        $error = '任务状态写入失败：' . $e->getMessage();
+                        $error = 'Failed to write task status: ' . $e->getMessage();
                         debug_log_write('[cron] ' . $key . ' state failed', $e);
                     }
                     $result[$status === 'success' ? 'success' : 'failed']++;

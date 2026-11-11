@@ -4710,6 +4710,22 @@ ul.reply-children {
     border-left-color: var(--brand)
 }
 
+.reply-subtree::after {
+    content: "";
+    position: absolute;
+    left: -3px;
+    bottom: 0;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--line);
+    transform: translateY(50%)
+}
+
+.reply-node:hover > .reply-subtree::after {
+    background: var(--brand)
+}
+
 .reply-collapse-toggle {
     position: absolute;
     left: -6px;

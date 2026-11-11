@@ -122,7 +122,8 @@ function seo_pack_llms(): void
     }
     $out .= "\n" . '## Latest topics' . "\n\n";
     try {
-        $latest = q('SELECT id,title FROM app_topics ORDER BY last_reply_at DESC,id DESC LIMIT 20')->fetchAll();
+        $forum_ids = array_map(fn($f) => (int)$f['id'], $forums);
+        $latest = $forum_ids === [] ? [] : q('SELECT id,title FROM app_topics WHERE forum_id IN (' . implode(',', $forum_ids) . ') ORDER BY last_reply_at DESC,id DESC LIMIT 20')->fetchAll();
         foreach ($latest as $t) {
             $out .= '- [' . trim((string)$t['title']) . '](' . absolute_url(route_url('topic', ['id' => (int)$t['id']])) . ")\n";
         }
@@ -203,7 +204,7 @@ function seo_pack_head($value, array $ctx = [])
 return [
     'id' => 'seo_pack',
     'name' => 'SEO Pack',
-    'version' => '1.0.0',
+    'version' => '1.0.1',
     'description' => 'Dynamic sitemap.xml and llms.txt, Sitemap line in robots.txt, home canonical and Organization/WebSite structured data.',
     'author' => 'AIBOT Play',
     'hooks' => [

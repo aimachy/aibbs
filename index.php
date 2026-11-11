@@ -30,7 +30,7 @@ define('CRON_LEASE_SECONDS', 1800);
 define('DEBUG_LOG_FILE', DATA_DIR . '/debug.log');
 define('DEBUG_LOG_DEDUP_SECONDS', 600);
 define('UPDATE_STATE_FILE', DATA_DIR . '/update-state.json');
-define('PASSWORD_MIN_LENGTH', 4);
+define('PASSWORD_MIN_LENGTH', 8);
 define('DB_STRING_MAX_LENGTH', 255);
 define('DB_TEXT_MAX_LENGTH', 4294967295);
 define('COOKIE_TTL', 15552000);
@@ -761,15 +761,40 @@ function clean_ip(string $v): string
     $v = explode('%', $v)[0];
     return filter_var($v, FILTER_VALIDATE_IP) ? strtolower(inet_ntop(inet_pton($v))) : '';
 }
+function ip_is_cloudflare(string $ip): bool
+{
+    // Cloudflare edge ranges (https://www.cloudflare.com/ips-v4, ips-v6; fetched 2026-11-11).
+    static $ranges = [
+        '173.245.48.0/20', '103.21.244.0/22', '103.22.200.0/22', '103.31.4.0/22', '141.101.64.0/18',
+        '108.162.192.0/18', '190.93.240.0/20', '188.114.96.0/20', '197.234.240.0/22', '198.41.128.0/17',
+        '162.158.0.0/15', '104.16.0.0/13', '104.24.0.0/14', '172.64.0.0/13', '131.0.72.0/22',
+        '2400:cb00::/32', '2606:4700::/32', '2803:f800::/32', '2405:b500::/32', '2405:8100::/32',
+        '2a06:98c0::/29', '2c0f:f248::/32',
+    ];
+    $bin = inet_pton($ip);
+    if ($bin === false) return false;
+    foreach ($ranges as $range) {
+        [$net, $bits] = explode('/', $range);
+        $net_bin = inet_pton($net);
+        if ($net_bin === false || strlen($net_bin) !== strlen($bin)) continue;
+        $bytes = intdiv((int)$bits, 8);
+        $rem = (int)$bits % 8;
+        if ($bytes > 0 && substr($bin, 0, $bytes) !== substr($net_bin, 0, $bytes)) continue;
+        if ($rem > 0 && (ord($bin[$bytes]) & ((0xFF << (8 - $rem)) & 0xFF)) !== (ord($net_bin[$bytes]) & ((0xFF << (8 - $rem)) & 0xFF))) continue;
+        return true;
+    }
+    return false;
+}
 function ip_addr(): string
 {
-    foreach (['HTTP_CLIENT_IP', 'HTTP_CF_CONNECTING_IP', 'HTTP_X_FORWARDED_FOR', 'HTTP_X_FORWARDED', 'HTTP_X_CLUSTER_CLIENT_IP', 'HTTP_FORWARDED_FOR', 'HTTP_FORWARDED', 'REMOTE_ADDR'] as $key) {
-        foreach (explode(',', (string)($_SERVER[$key] ?? '')) as $value) {
-            $ip = clean_ip($value);
-            if ($ip !== '') return $ip;
-        }
+    $remote = clean_ip((string)($_SERVER['REMOTE_ADDR'] ?? ''));
+    // Only a real Cloudflare edge node may speak for the visitor via
+    // CF-Connecting-IP; every other forwarded header is spoofable and ignored.
+    if ($remote !== '' && ip_is_cloudflare($remote)) {
+        $cf = clean_ip((string)($_SERVER['HTTP_CF_CONNECTING_IP'] ?? ''));
+        if ($cf !== '') return $cf;
     }
-    return '0.0.0.0';
+    return $remote !== '' ? $remote : '0.0.0.0';
 }
 function post_interval_seconds(): int
 {

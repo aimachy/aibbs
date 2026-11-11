@@ -20,7 +20,10 @@ if (!defined('APP_ROOT')) exit;
 
 function seo_pack_base(): string
 {
-    return rtrim(absolute_url(route_url('home')), '/');
+    $base = absolute_url(route_url('home'));
+    // route_url('home') ends in /index.php — the site's public root is the bare domain.
+    $base = preg_replace('#index\.php/?$#', '', $base) ?? $base;
+    return rtrim($base, '/');
 }
 
 function seo_pack_site_name(): string
@@ -46,10 +49,13 @@ function seo_pack_visible_forums(): array
     }
 }
 
-/** YYYY-MM-DD date part of a stored datetime string, '' when unusable. */
+/** YYYY-MM-DD for a stored timestamp (unix epoch or datetime string), '' when unusable. */
 function seo_pack_date(string $dt): string
 {
-    $d = substr(trim($dt), 0, 10);
+    $dt = trim($dt);
+    if ($dt === '') return '';
+    if (ctype_digit($dt)) return gmdate('Y-m-d', (int)$dt);
+    $d = substr($dt, 0, 10);
     return preg_match('/^\d{4}-\d{2}-\d{2}$/', $d) === 1 ? $d : '';
 }
 
